@@ -146,13 +146,7 @@ function loadDevices() {
     if (!savedValue) return [];
     const saved = JSON.parse(savedValue);
     if (!Array.isArray(saved)) return [];
-    return saved
-      .filter((device = {}) =>
-        !["ash bahay", "block 1", "bfxf"].includes(String(device?.name || device?.deviceName || "").trim().toLowerCase()) &&
-        !String(device?.token || device?.authToken || "").toLowerCase().endsWith("cwogfk") &&
-        String(device?.token || device?.authToken || "").toLowerCase() !== "chismosa_live_tok_dc5owkyfe718k1",
-      )
-      .map((device) => ({ ...device, isActive: device?.isActive === true }));
+    return saved.map((device) => ({ ...device, isActive: device?.isActive === true }));
   } catch (_) {
     return [];
   }

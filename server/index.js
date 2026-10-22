@@ -10,9 +10,20 @@ const app = express();
 app.post(
   '/api/v1/update',
   cors(),
+  express.json(),
+  express.urlencoded({ extended: true }),
   (req, res) => {
-    console.log('[B.U.L.A.B.O.G Hardware Sync] Telemetry received:', req.body || req.query);
-    return res.status(200).json({ success: true });
+    const token = req.body?.token ?? req.query.token;
+    const pin = req.body?.pin ?? req.query.pin;
+    const value = req.body?.value ?? req.query.value;
+    const device = findDeviceByToken(token);
+    const numericValue = Number(value);
+
+    if (device && value !== undefined && Number.isFinite(numericValue)) {
+      publishTelemetry(device, pin || device.pin || 'V0', numericValue);
+    }
+
+    return res.status(200).json({ success: true, message: 'Telemetry received' });
   },
 );
 

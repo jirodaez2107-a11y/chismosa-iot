@@ -27,11 +27,7 @@ app.all(
       publishTelemetry(device, pin || device.pin || 'V0', numericValue);
     }
 
-    return res.status(200).json({
-      success: true,
-      message: 'Telemetry accepted',
-      received: { token, pin, value },
-    });
+    return res.status(200).json({ success: true, message: 'Telemetry accepted' });
   },
 );
 

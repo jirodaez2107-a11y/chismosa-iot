@@ -10,19 +10,9 @@ const app = express();
 app.post(
   '/api/v1/update',
   cors(),
-  express.json(),
-  express.urlencoded({ extended: true }),
   (req, res) => {
-    const data = req.body && Object.keys(req.body).length ? req.body : req.query;
-    const value = req.body?.value ?? req.query.value;
-    const pin = req.body?.pin ?? req.query.pin;
-    const token = req.body?.token ?? req.query.token;
-    console.log('[B.U.L.A.B.O.G Hardware Sync] Telemetry received:', { value, pin, token });
-    return res.status(200).json({
-      success: true,
-      message: 'Telemetry received',
-      data,
-    });
+    console.log('[B.U.L.A.B.O.G Hardware Sync] Telemetry received:', req.body || req.query);
+    return res.status(200).json({ success: true });
   },
 );
 
@@ -33,7 +23,6 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const PORT = process.env.PORT || 3000;
 
 const devices = new Map();
-const defaultToken = 'chismosa_live_tok_dc5owkyfe718k1';
 const deletedDevicesFile = path.join(__dirname, 'deleted-devices.json');
 let deletedDeviceTokens = new Set();
 try {
@@ -103,20 +92,6 @@ function findDeviceByIdOrToken(identifier) {
   ) || null;
 }
 
-function seedDefaultDevice() {
-  if (!deletedDeviceTokens.has(defaultToken.toLowerCase())) {
-    devices.set(defaultToken, createDevice(defaultToken, {
-      id: 'block-1',
-      name: 'block 1',
-      token: defaultToken,
-      deviceName: 'block 1',
-      status: 'active',
-      value: 0,
-      lastReading: 0,
-    }));
-  }
-}
-
 function authenticateDevice(req, res, next) {
   const token = getRequestToken(req);
   const device = findDeviceByToken(token);
@@ -127,8 +102,6 @@ function authenticateDevice(req, res, next) {
   req.device = device;
   next();
 }
-
-seedDefaultDevice();
 
 function serializeDevice(device, now = Date.now()) {
   const { hardwareConnections, ...publicDevice } = device;

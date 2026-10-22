@@ -140,6 +140,23 @@ const locations = [
     121.045,
   ],
 ];
+function loadDevices() {
+  try {
+    const savedValue = localStorage.getItem("chismosa-devices");
+    if (!savedValue) return [];
+    const saved = JSON.parse(savedValue);
+    if (!Array.isArray(saved)) return [];
+    return saved
+      .filter((device = {}) =>
+        !["ash bahay", "block 1", "bfxf"].includes(String(device?.name || device?.deviceName || "").trim().toLowerCase()) &&
+        !String(device?.token || device?.authToken || "").toLowerCase().endsWith("cwogfk") &&
+        String(device?.token || device?.authToken || "").toLowerCase() !== "chismosa_live_tok_dc5owkyfe718k1",
+      )
+      .map((device) => ({ ...device, isActive: device?.isActive === true }));
+  } catch (_) {
+    return [];
+  }
+}
 
 function Badge({ children, tone = "blue" }) {
   return (
@@ -554,45 +571,6 @@ function makeToken(existingTokens = []) {
   } while (existingTokens.includes(token));
   return token;
 }
-
-const defaultDevices = [
-  {
-    id: "primary",
-    name: "NoiseMonitor-ESP32-DEV",
-    model: "ESP32",
-    sensor: "MAX9814",
-    location: "Main Street Campus",
-    pin: "V0",
-    token: "chismosa_live_tok_primary01",
-    ip: "192.168.1.42",
-    rssi: "-54 dBm",
-    firmware: "v1.4.2",
-  },
-  {
-    id: "esp8266",
-    name: "NoiseMonitor-ESP8266-02",
-    model: "ESP8266",
-    sensor: "KY-037",
-    location: "Riverside Workshop",
-    pin: "V0",
-    token: "chismosa_live_tok_esp826601",
-    ip: "192.168.1.43",
-    rssi: "-67 dBm",
-    firmware: "v1.3.8",
-  },
-  {
-    id: "south",
-    name: "Campus-South-Node",
-    model: "ESP32-S3",
-    sensor: "MAX4466",
-    location: "East Residential Block",
-    pin: "V0",
-    token: "chismosa_live_tok_south0001",
-    ip: "10.0.0.18",
-    rssi: "-81 dBm",
-    firmware: "v1.2.4",
-  },
-];
 
 function setupCode(device) {
   const wifiLibrary =
@@ -3064,16 +3042,7 @@ function AppContent() {
       return defaultStreams;
     }
   });
-  const [devices, setDevices] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("chismosa-devices"));
-      return Array.isArray(saved)
-        ? saved.map((device) => ({ ...device, isActive: device?.isActive === true }))
-        : [];
-    } catch (_) {
-      return [];
-    }
-  });
+  const [devices, setDevices] = useState(loadDevices);
   const deviceLocations = (() => {
     try {
       return (

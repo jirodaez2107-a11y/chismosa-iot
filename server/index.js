@@ -21,8 +21,8 @@ app.all(
 
     return res.status(200).json({
       success: true,
-      message: 'Telemetry received successfully',
-      data: { token, pin, value },
+      message: 'Telemetry accepted',
+      received: { token, pin, value },
     });
   },
 );

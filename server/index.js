@@ -7,23 +7,19 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
-app.all(
+app.get('/api/v1/update', cors(), (req, res) => {
+  console.log('GET /api/v1/update called:', req.query);
+  return res.status(200).json({ success: true, message: 'Telemetry accepted', query: req.query });
+});
+
+app.post(
   '/api/v1/update',
   cors(),
   express.json(),
   express.urlencoded({ extended: true }),
   (req, res) => {
-    const token = req.query.token || req.body?.token;
-    const pin = req.query.pin || req.body?.pin;
-    const value = req.query.value || req.body?.value;
-
-    console.log(`[Telemetry Sync] Token: ${token} | Pin: ${pin} | Value: ${value}`);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Telemetry received successfully',
-      received: { token, pin, value },
-    });
+    console.log('POST /api/v1/update called:', req.body);
+    return res.status(200).json({ success: true, message: 'Telemetry accepted', body: req.body });
   },
 );
 

@@ -7,6 +7,25 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
+app.post(
+  '/api/v1/update',
+  cors(),
+  express.json(),
+  express.urlencoded({ extended: true }),
+  (req, res) => {
+    const data = req.body && Object.keys(req.body).length ? req.body : req.query;
+    const value = req.body?.value ?? req.query.value;
+    const pin = req.body?.pin ?? req.query.pin;
+    const token = req.body?.token ?? req.query.token;
+    console.log('[B.U.L.A.B.O.G Hardware Sync] Telemetry received:', { value, pin, token });
+    return res.status(200).json({
+      success: true,
+      message: 'Telemetry received',
+      data,
+    });
+  },
+);
+
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -87,6 +106,9 @@ function findDeviceByIdOrToken(identifier) {
 function seedDefaultDevice() {
   if (!deletedDeviceTokens.has(defaultToken.toLowerCase())) {
     devices.set(defaultToken, createDevice(defaultToken, {
+      id: 'block-1',
+      name: 'block 1',
+      token: defaultToken,
       deviceName: 'block 1',
       status: 'active',
       value: 0,
@@ -330,17 +352,6 @@ app.patch('/api/device/name', (req, res) => {
   device.deviceName = name;
   broadcast({ type: 'device', payload: serializeDevice(device) });
   return res.json({ ok: true, device: serializeDevice(device) });
-});
-
-// REST: accept updates like Blynk
-// POST /api/v1/update?token=YOUR_AUTH_TOKEN&pin=V0&value=120
-app.post('/api/v1/update', (req, res) => {
-  console.log('[B.U.L.A.B.O.G Hardware Sync] Data received successfully:', req.body || req.query);
-  return res.status(200).json({
-    success: true,
-    message: 'Telemetry received',
-    data: req.body || req.query,
-  });
 });
 
 // Simple mock generator

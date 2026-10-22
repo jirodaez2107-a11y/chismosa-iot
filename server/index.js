@@ -3,6 +3,8 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const http = require('http');
 const WebSocket = require('ws');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(cors());
@@ -12,8 +14,19 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const PORT = process.env.PORT || 3000;
 
 const devices = new Map();
+const defaultToken = 'chismosa_live_tok_dc5owkyfe718k1';
+const deletedDevicesFile = path.join(__dirname, 'deleted-devices.json');
+let deletedDeviceTokens = new Set();
+try {
+  const saved = JSON.parse(fs.readFileSync(deletedDevicesFile, 'utf8'));
+  if (Array.isArray(saved)) deletedDeviceTokens = new Set(saved.map((token) => String(token).toLowerCase()));
+} catch (_) {}
 
-function createDevice(authToken) {
+function persistDeletedDevices() {
+  fs.writeFileSync(deletedDevicesFile, JSON.stringify([...deletedDeviceTokens], null, 2));
+}
+
+function createDevice(authToken, overrides = {}) {
   const shortToken = authToken.slice(-6);
   return {
     id: `device-${shortToken}`,
@@ -27,6 +40,7 @@ function createDevice(authToken) {
     wifi: { ssid: 'your-ssid', status: 'disconnected' },
     authToken,
     status: 'offline',
+    value: 0,
     lastSeen: null,
     totalReadings: 0,
     lastReading: null,
@@ -34,10 +48,12 @@ function createDevice(authToken) {
     onlineSince: null,
     accumulatedOnlineMs: 0,
     hardwareConnections: new Set(),
+    ...overrides,
   };
 }
 
-function getDevice(authToken) {
+function getDevice(authToken, overrides = {}) {
+  if (!authToken || deletedDeviceTokens.has(String(authToken).toLowerCase())) return null;
   if (!devices.has(authToken)) devices.set(authToken, createDevice(authToken));
   return devices.get(authToken);
 }
@@ -61,6 +77,24 @@ function findDeviceByToken(token) {
   return null;
 }
 
+function findDeviceByIdOrToken(identifier) {
+  if (typeof identifier !== 'string') return null;
+  return [...devices.values()].find((device) =>
+    device.id === identifier || device.authToken.toLowerCase() === identifier.toLowerCase(),
+  ) || null;
+}
+
+function seedDefaultDevice() {
+  if (!deletedDeviceTokens.has(defaultToken.toLowerCase())) {
+    devices.set(defaultToken, createDevice(defaultToken, {
+      deviceName: 'block 1',
+      status: 'active',
+      value: 0,
+      lastReading: 0,
+    }));
+  }
+}
+
 function authenticateDevice(req, res, next) {
   const token = getRequestToken(req);
   const device = findDeviceByToken(token);
@@ -71,6 +105,8 @@ function authenticateDevice(req, res, next) {
   req.device = device;
   next();
 }
+
+seedDefaultDevice();
 
 function serializeDevice(device, now = Date.now()) {
   const { hardwareConnections, ...publicDevice } = device;
@@ -131,7 +167,6 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // Serve built frontend if present
-const path = require('path');
 const publicDir = path.join(__dirname, 'public');
 if (require('fs').existsSync(publicDir)) {
   app.use(express.static(publicDir));
@@ -151,8 +186,10 @@ function broadcast(data) {
 }
 
 function publishTelemetry(device, pin, numericValue) {
+  if (!device) return null;
   device.totalReadings += 1;
   device.lastReading = numericValue;
+  device.value = numericValue;
   const normalizedPin = String(pin).trim().toUpperCase();
   const isV0 = normalizedPin === 'V0';
   const isRawV0 = isV0 && numericValue > 100;
@@ -245,22 +282,40 @@ const heartbeatInterval = setInterval(() => {
 // REST: get device info
 app.get('/api/device', (req, res) => {
   const token = req.query.token;
-  if (token) return res.json(serializeDevice(getDevice(token)));
+  if (token) {
+    const device = findDeviceByToken(token);
+    if (!device) return res.status(404).json({ error: 'device not found' });
+    return res.json(serializeDevice(device));
+  }
   return res.json({ devices: [...devices.values()].map((device) => serializeDevice(device)) });
 });
 app.get('/api/metrics', (req, res) => res.json(getMetrics()));
 
-app.delete('/api/device', (req, res) => {
-  const token = getRequestToken(req);
-  const device = findDeviceByToken(token);
-  if (!device) return res.status(404).json({ error: 'device not found' });
-
+function removeDevice(device) {
   device.hardwareConnections.forEach((connection) => connection.close());
   devices.delete(device.authToken);
+  deletedDeviceTokens.add(device.authToken.toLowerCase());
+  persistDeletedDevices();
   if (mockIntervals.has(device.authToken)) {
     clearTimeout(mockIntervals.get(device.authToken));
     mockIntervals.delete(device.authToken);
   }
+}
+
+app.delete('/api/device/:id', (req, res) => {
+  const device = findDeviceByIdOrToken(req.params.id);
+  if (!device) return res.status(404).json({ error: 'device not found' });
+
+  removeDevice(device);
+  broadcast({ type: 'metrics', payload: getMetrics() });
+  return res.json({ success: true, message: 'Device deleted' });
+});
+
+app.delete('/api/device', (req, res) => {
+  const device = findDeviceByToken(getRequestToken(req));
+  if (!device) return res.status(404).json({ error: 'device not found' });
+
+  removeDevice(device);
   broadcast({ type: 'metrics', payload: getMetrics() });
   return res.json({ success: true, message: 'Device deleted' });
 });

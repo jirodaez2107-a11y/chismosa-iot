@@ -26,6 +26,19 @@ app.post(
     return res.status(200).json({ success: true, message: 'Telemetry received' });
   },
 );
+app.get('/api/v1/update', cors(), (req, res) => {
+  const token = req.query.token;
+  const pin = req.query.pin;
+  const value = req.query.value;
+  const device = findDeviceByToken(token);
+  const numericValue = Number(value);
+
+  if (device && value !== undefined && Number.isFinite(numericValue)) {
+    publishTelemetry(device, pin || device.pin || 'V0', numericValue);
+  }
+
+  return res.status(200).json({ success: true });
+});
 
 app.use(cors());
 app.use(bodyParser.json());

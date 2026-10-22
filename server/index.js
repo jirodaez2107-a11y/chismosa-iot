@@ -12,14 +12,13 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const PORT = process.env.PORT || 3000;
 
 const devices = new Map();
-const defaultToken = 'chismosa_live_tok_wms1mlrqcwogfk';
 
 function createDevice(authToken) {
   const shortToken = authToken.slice(-6);
   return {
     id: `device-${shortToken}`,
     templateId: 'TEMPLATE_NOISE_001',
-    deviceName: authToken === defaultToken ? 'ash bahay' : `ESP8266-${shortToken}`,
+    deviceName: `ESP8266-${shortToken}`,
     model: 'ESP8266',
     sensor: 'Primary sound sensor',
     firmware: 'v1.0.0',
@@ -72,8 +71,6 @@ function authenticateDevice(req, res, next) {
   req.device = device;
   next();
 }
-
-getDevice(defaultToken);
 
 function serializeDevice(device, now = Date.now()) {
   const { hardwareConnections, ...publicDevice } = device;
@@ -252,6 +249,21 @@ app.get('/api/device', (req, res) => {
   return res.json({ devices: [...devices.values()].map((device) => serializeDevice(device)) });
 });
 app.get('/api/metrics', (req, res) => res.json(getMetrics()));
+
+app.delete('/api/device', (req, res) => {
+  const token = getRequestToken(req);
+  const device = findDeviceByToken(token);
+  if (!device) return res.status(404).json({ error: 'device not found' });
+
+  device.hardwareConnections.forEach((connection) => connection.close());
+  devices.delete(device.authToken);
+  if (mockIntervals.has(device.authToken)) {
+    clearTimeout(mockIntervals.get(device.authToken));
+    mockIntervals.delete(device.authToken);
+  }
+  broadcast({ type: 'metrics', payload: getMetrics() });
+  return res.json({ success: true, message: 'Device deleted' });
+});
 
 app.patch('/api/device/name', (req, res) => {
   const token = req.body.token;

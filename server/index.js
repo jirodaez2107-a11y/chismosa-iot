@@ -15,9 +15,17 @@ app.all(
   (req, res) => {
     const token = req.query.token || req.body?.token;
     const pin = req.query.pin || req.body?.pin;
-    const value = req.query.value || req.body?.value;
+    const value = req.query.value ?? req.body?.value;
 
-    console.log(`[Telemetry Received] Token: ${token} | Pin: ${pin} | Value: ${value}`);
+    console.log(`[Telemetry Sync] Token: ${token} | Value: ${value}`);
+    const normalizedToken = typeof token === 'string' ? token.trim() : '';
+    const device = findDeviceByToken(normalizedToken) || (normalizedToken ? getDevice(normalizedToken) : null);
+    if (device && pin) device.pin = pin;
+
+    const numericValue = Number(value);
+    if (device && value !== undefined && Number.isFinite(numericValue)) {
+      publishTelemetry(device, pin || device.pin || 'V0', numericValue);
+    }
 
     return res.status(200).json({
       success: true,

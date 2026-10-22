@@ -7,38 +7,25 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
-app.post(
+app.all(
   '/api/v1/update',
   cors(),
   express.json(),
   express.urlencoded({ extended: true }),
   (req, res) => {
-    const token = req.body?.token ?? req.query.token;
-    const pin = req.body?.pin ?? req.query.pin;
-    const value = req.body?.value ?? req.query.value;
-    const device = findDeviceByToken(token);
-    const numericValue = Number(value);
+    const token = req.query.token || req.body?.token;
+    const pin = req.query.pin || req.body?.pin;
+    const value = req.query.value || req.body?.value;
 
-    if (device && value !== undefined && Number.isFinite(numericValue)) {
-      publishTelemetry(device, pin || device.pin || 'V0', numericValue);
-    }
+    console.log(`[Telemetry Received] Token: ${token} | Pin: ${pin} | Value: ${value}`);
 
-    return res.status(200).json({ success: true, message: 'Telemetry received' });
+    return res.status(200).json({
+      success: true,
+      message: 'Telemetry received successfully',
+      data: { token, pin, value },
+    });
   },
 );
-app.get('/api/v1/update', cors(), (req, res) => {
-  const token = req.query.token;
-  const pin = req.query.pin;
-  const value = req.query.value;
-  const device = findDeviceByToken(token);
-  const numericValue = Number(value);
-
-  if (device && value !== undefined && Number.isFinite(numericValue)) {
-    publishTelemetry(device, pin || device.pin || 'V0', numericValue);
-  }
-
-  return res.status(200).json({ success: true });
-});
 
 app.use(cors());
 app.use(bodyParser.json());

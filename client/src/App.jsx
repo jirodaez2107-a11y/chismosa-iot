@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  Bell,
   Box,
   ChevronDown,
   Code2,
@@ -15,7 +16,6 @@ import {
   LineChart,
   Mail,
   MapPin,
-  MoreHorizontal,
   Pencil,
   Play,
   Plus,
@@ -28,7 +28,6 @@ import {
   Sparkles,
   Trash2,
   User,
-  Users,
   Wifi,
   X,
   Zap,
@@ -61,8 +60,6 @@ const tabs = [
 const nav = [
   ["Developer Zone", Code2],
   ["Devices", Radio],
-  ["Users", Users],
-  ["Locations", MapPin],
 ];
 const initialWidgets = [
   {
@@ -210,20 +207,25 @@ function Metric({ label, value, trend, icon: Icon }) {
   );
 }
 
-function Chart({ points, compact = false }) {
-  const values = points;
+function Chart({ points = [], series = [], compact = false, displayLabel = "Level" }) {
+  const safeSeries = Array.isArray(series)
+    ? series.map((item = {}, index) => ({
+      ...item,
+      points: Array.isArray(item.points) ? item.points.filter((value) => Number.isFinite(Number(value))) : [],
+      color: item.color || ["#2563eb", "#0f766e", "#d97706", "#db2777", "#7c3aed"][index % 5],
+    })).filter((item) => item.points.length > 0)
+    : [];
+  const values = Array.isArray(points) ? points.filter((value) => Number.isFinite(Number(value))) : [];
   const w = 700;
   const h = compact ? 130 : 220;
-  const path = values
-    .map(
-      (value, index) =>
-        `${index ? "L" : "M"} ${((index / Math.max(values.length - 1, 1)) * w).toFixed(1)} ${(h - (value / 120) * h).toFixed(1)}`,
-    )
+  const buildPath = (lineValues) => lineValues
+    .map((value, index) => `${index ? "L" : "M"} ${((index / Math.max(lineValues.length - 1, 1)) * w).toFixed(1)} ${(h - (value / 120) * h).toFixed(1)}`)
     .join(" ");
+  const paths = safeSeries.length ? safeSeries.map((item) => ({ ...item, path: buildPath(item.points) })) : [{ points: values, path: buildPath(values), color: "#2563eb" }];
   return (
     <div className={`chart-box ${compact ? "compact" : ""}`}>
       <div className="axis-y">
-        <span>120 dB</span>
+        <span>120 {displayLabel}</span>
         <span>90</span>
         <span>60</span>
         <span>30</span>
@@ -239,10 +241,15 @@ function Chart({ points, compact = false }) {
             y2={h - (v / 120) * h}
           />
         ))}
-        {values.length > 0 && <path className="chart-fill" d={`${path} L ${w} ${h} L 0 ${h} Z`} />}
-        {values.length > 0 && <path className="chart-stroke" d={path} />}
+        {paths.map((item) => (
+          <g key={item.id || item.label || item.color}>
+            {!safeSeries.length && item.points.length > 0 && <path className="chart-fill" d={`${item.path} L ${w} ${h} L 0 ${h} Z`} style={{ fill: item.color }} />}
+            {item.points.length > 0 && <path className="chart-stroke" d={item.path} style={{ stroke: item.color }} />}
+          </g>
+        ))}
       </svg>
-      {values.length === 0 && <span className="chart-empty">Waiting for V0 telemetry</span>}
+      {!paths.some((item) => item.points.length > 0) && <span className="chart-empty">Waiting for V0 telemetry</span>}
+      {safeSeries.length > 0 && <div className="chart-legend">{safeSeries.map((item) => <span key={item.id || item.label}><i style={{ background: item.color }} />{item.label}</span>)}</div>}
       <div className="axis-x">
         <span>Now</span>
         <span>15m</span>
@@ -253,15 +260,16 @@ function Chart({ points, compact = false }) {
     </div>
   );
 }
-function GaugeWidget({ value, radial = false }) {
+function GaugeWidget({ value = 0, radial = false, displayLabel = "Level" }) {
+  const safeValue = Number.isFinite(Number(value)) ? Number(value) : 0;
   return radial ? (
     <div className="radial-wrap">
       <div
         className="radial"
-        style={{ "--progress": `${Math.round(value * 3.6)}deg` }}
+        style={{ "--progress": `${Math.round(safeValue * 3.6)}deg` }}
       >
-        <strong>{value}</strong>
-        <span>dB</span>
+        <strong>{safeValue}</strong>
+        <span>{displayLabel}</span>
       </div>
     </div>
   ) : (
@@ -271,12 +279,12 @@ function GaugeWidget({ value, radial = false }) {
         <path
           className="gauge-value"
           d="M24 105 A86 86 0 0 1 196 105"
-          strokeDasharray={`${(Math.PI * 86 * value) / 100} ${Math.PI * 86}`}
+          strokeDasharray={`${(Math.PI * 86 * safeValue) / 100} ${Math.PI * 86}`}
         />
       </svg>
       <strong>
-        {value}
-        <small>dB</small>
+        {safeValue}
+        <small>{displayLabel}</small>
       </strong>
       <div>
         <span>0</span>
@@ -286,13 +294,13 @@ function GaugeWidget({ value, radial = false }) {
   );
 }
 
-function WidgetCard({ widget, value, points, onEdit, onDelete }) {
+function WidgetCard({ widget = {}, value = 0, points = [], displayLabel = "Level", onEdit = () => {}, onDelete = () => {} }) {
   return (
     <Card className="canvas-widget">
       <div className="widget-card-head">
         <div>
-          <span className="eyebrow blue">{widget.pin} / LIVE STREAM</span>
-          <h3>{widget.title}</h3>
+          <span className="eyebrow blue">{widget?.pin || "V0"} / LIVE STREAM</span>
+          <h3>{widget?.title || "Noise Level"}</h3>
         </div>
         <div className="widget-menu">
           <button title="Edit widget" onClick={() => onEdit(widget)}>
@@ -303,13 +311,13 @@ function WidgetCard({ widget, value, points, onEdit, onDelete }) {
           </button>
         </div>
       </div>
-      {widget.kind === "gauge" && <GaugeWidget value={value} />}
-      {widget.kind === "radial" && <GaugeWidget value={value} radial />}
-      {widget.kind === "chart" && <Chart points={points} compact />}
-      {widget.kind === "value" && (
+      {widget?.kind === "gauge" && <GaugeWidget value={value} displayLabel={displayLabel} />}
+      {widget?.kind === "radial" && <GaugeWidget value={value} displayLabel={displayLabel} radial />}
+      {widget?.kind === "chart" && <Chart points={points} displayLabel={displayLabel} compact />}
+      {widget?.kind === "value" && (
         <div className="value-widget">
           <strong>{value}</strong>
-          <span>dB</span>
+          <span>{displayLabel}</span>
           <small>Current sensor reading</small>
         </div>
       )}
@@ -319,15 +327,30 @@ function WidgetCard({ widget, value, points, onEdit, onDelete }) {
           Live data
         </span>
         <span>
-          {widget.min}–{widget.max} {widget.kind === "value" ? "dB" : ""}
+          {widget?.min ?? 0}–{widget?.max ?? 120} {widget?.kind === "value" ? displayLabel : ""}
         </span>
       </div>
     </Card>
   );
 }
 
-function HomeView({ value, points, setTab, devices, device, connected }) {
-  const onlineDevices = devices.filter((item) => item.status === "online").length;
+function HomeView({ value = 0, points = [], displayLabel = "Level", setTab = () => {}, connected = false, metrics = {}, devices = [], telemetryByDevice = {}, onToggleDevice = () => {} }) {
+  const safeDevices = Array.isArray(devices) ? devices : [];
+  const safeTelemetry = telemetryByDevice && typeof telemetryByDevice === "object" ? telemetryByDevice : {};
+  const safeMetrics = metrics ?? {};
+  const totalReadings = Number(safeMetrics?.totalReadings) || 0;
+  const uptimePercentage = Number(safeMetrics?.uptimePercentage) || 0;
+  const onlineDevices = Number(safeMetrics?.onlineDeviceCount) || 0;
+  const registeredDevices = Number(safeMetrics?.registeredDeviceCount) || 0;
+  const isDeviceOnline = String(safeMetrics?.healthStatus ?? "offline").toLowerCase() === "online";
+  const latestReading = Number.isFinite(Number(value)) ? Number(value) : 0;
+  const chartPoints = Array.isArray(points) ? points : [];
+  const activeDevices = safeDevices.filter((item = {}) => item?.isActive === true);
+  const chartSeries = activeDevices.map((item, index) => {
+    const key = item?.token || item?.id;
+    const telemetry = safeTelemetry?.[key] || safeTelemetry?.[item?.id] || {};
+    return { id: key || item?.name || index, label: item?.name || "Unnamed device", points: telemetry.points, color: ["#2563eb", "#0f766e", "#d97706", "#db2777", "#7c3aed"][index % 5] };
+  });
   return (
     <>
       <PageTitle
@@ -344,40 +367,64 @@ function HomeView({ value, points, setTab, devices, device, connected }) {
       <div className="metrics">
         <Metric
           label="Total readings"
-          value="1,284,620"
-          trend="+12.4% this week"
+          value={totalReadings.toLocaleString()}
+          trend="Recorded by server"
           icon={Database}
         />
         <Metric
           label="Device uptime"
-          value="99.82%"
-          trend="Last 30 days"
+          value={`${uptimePercentage.toFixed(1)}%`}
+          trend="Based on hardware socket time"
           icon={Activity}
         />
         <Metric
           label="Active devices"
-          value={`${onlineDevices} / ${devices.length}`}
-          trend={`${devices.length - onlineDevices} device${devices.length - onlineDevices === 1 ? "" : "s"} offline`}
+          value={`${onlineDevices} / ${registeredDevices}`}
+          trend={`${Math.max(0, registeredDevices - onlineDevices)} device${registeredDevices - onlineDevices === 1 ? "" : "s"} offline`}
           icon={Radio}
         />
         <Metric
           label="Health status"
-          value={device?.status === "online" ? "Healthy" : "Offline"}
-          trend={connected ? "Live connection active" : "Waiting for live connection"}
+          value={isDeviceOnline ? "Healthy" : "Offline"}
+          trend={connected ? "Dashboard connected" : "Waiting for dashboard connection"}
           icon={Zap}
         />
       </div>
+      <Card className="home-device-overview">
+        <SectionHead label="DEVICE OVERVIEW" title="Registered devices" />
+        {safeDevices.length ? (
+          <div className="home-device-list">
+            {safeDevices.map((item = {}) => {
+              const telemetry = safeTelemetry?.[item?.id] || {};
+                  const enabled = item?.isActive === true;
+              const status = enabled && item.status === "online" ? "Online" : enabled ? "Offline" : "Disabled";
+              return (
+                <div className="home-device-row" key={item.id}>
+                  <div className="table-device">
+                    <span className="device-symbol"><Radio size={15} /></span>
+                    <span><b>{item?.name || "Unnamed device"}</b><small>{item?.model || "ESP8266"} · {item?.pin || "V0"}</small></span>
+                  </div>
+                  <span className={`device-health ${status.toLowerCase()}`}>{status}</span>
+                  <strong>{telemetry.value ?? item.lastReading ?? 0} {displayLabel}</strong>
+                  <span className="home-reading-count">{Number(item.totalReadings) || 0} readings</span>
+                  <button className={`device-toggle ${enabled ? "on" : ""}`} type="button" role="switch" aria-checked={enabled} aria-label={`${enabled ? "Disable" : "Enable"} ${item?.name || "device"}`} onClick={() => onToggleDevice(item?.id)}><i /></button>
+                </div>
+              );
+            })}
+          </div>
+        ) : <p className="empty-metadata-state">No registered devices have reported telemetry yet.</p>}
+      </Card>
       <div className="two-col">
         <Card>
           <SectionHead
             label="LIVE STREAM"
             title="Noise level activity"
-            action={<Badge tone={device?.status === "online" ? "blue" : "gray"}>{device?.status === "online" ? "Online" : "Offline"}</Badge>}
+            action={<Badge tone={isDeviceOnline ? "blue" : "gray"}>{isDeviceOnline ? "Online" : "Offline"}</Badge>}
           />
           <div className="home-chart">
-            <Chart points={points} />
+            <Chart points={chartPoints} series={chartSeries} displayLabel={displayLabel} />
           </div>
-          <div className="home-live-reading">Latest V0 reading <b>{value} dB</b></div>
+          <div className="home-live-reading">Latest V0 reading <b>{latestReading} {displayLabel}</b></div>
         </Card>
         <Card>
           <SectionHead label="QUICK SHORTCUTS" title="Manage ChismOSA" />
@@ -421,8 +468,8 @@ function DeveloperView() {
         description="Configure firmware, hardware, and secure device connectivity."
         action={
           <Button kind="primary">
-            <Save size={15} />
-            Save template
+            <Code2 size={15} />
+            Generate firmware
           </Button>
         }
       />
@@ -713,7 +760,9 @@ function AddDeviceModal({ locations, existingTokens, onClose, onAdd }) {
   );
 }
 
-function DevicesView({ devices, setDevices, value, locations, setEvents, activeDeviceId, onActivate, onRename }) {
+function DevicesView({ devices = [], setDevices = () => {}, value = 0, displayLabel = "Level", locations = [], setEvents = () => {}, onToggleActive = () => {}, onRename = async () => {} }) {
+  const safeDevices = Array.isArray(devices) ? devices : [];
+  const safeLocations = Array.isArray(locations) ? locations : [];
   const [adding, setAdding] = useState(false);
   const [setup, setSetup] = useState(null);
   const [editingDeviceId, setEditingDeviceId] = useState(null);
@@ -721,9 +770,9 @@ function DevicesView({ devices, setDevices, value, locations, setEvents, activeD
   const [renameError, setRenameError] = useState("");
   const [visibleTokens, setVisibleTokens] = useState(() => new Set());
   const [copiedTokenId, setCopiedTokenId] = useState(null);
-  const onlineCount = devices.filter((device) => device.status === "online").length;
-  const reportedSignals = devices
-    .map((device) => Number.parseInt(device.rssi, 10))
+  const onlineCount = safeDevices.filter((device = {}) => device?.status === "online").length;
+  const reportedSignals = safeDevices
+    .map((device = {}) => Number.parseInt(device?.rssi, 10))
     .filter(Number.isFinite);
   const averageRssi = reportedSignals.length
     ? `${Math.round(reportedSignals.reduce((sum, signal) => sum + signal, 0) / reportedSignals.length)} dBm`
@@ -775,16 +824,16 @@ function DevicesView({ devices, setDevices, value, locations, setEvents, activeD
       <div className="device-summary">
         <Card>
           <span>Registered devices</span>
-          <strong>{devices.length}</strong>
+          <strong>{safeDevices.length}</strong>
           <small>
-            Across {new Set(devices.map((device) => device.location)).size}{" "}
+            Across {new Set(safeDevices.map((device = {}) => device?.location)).size}{" "}
             locations
           </small>
         </Card>
         <Card>
           <span>Online now</span>
           <strong className="blue-text">{onlineCount}</strong>
-          <small>of {devices.length} registered devices</small>
+          <small>of {safeDevices.length} registered devices</small>
         </Card>
         <Card>
           <span>Average RSSI</span>
@@ -814,7 +863,7 @@ function DevicesView({ devices, setDevices, value, locations, setEvents, activeD
             </tr>
           </thead>
           <tbody>
-            {devices.map((device) => (
+            {safeDevices.map((device = {}) => (
               <tr key={device.id}>
                 <td>
                   <div className="table-device">
@@ -845,7 +894,7 @@ function DevicesView({ devices, setDevices, value, locations, setEvents, activeD
                             setEditingDeviceId(device.id);
                             setRenameError("");
                           }}><Pencil size={12} /></button>
-                          <button type="button" className={`device-activate-button ${String(activeDeviceId) === String(device.id) ? "active" : ""}`} title={String(activeDeviceId) === String(device.id) ? "Active dashboard device" : `Activate ${device.name}`} onClick={() => onActivate(device.id)}>{String(activeDeviceId) === String(device.id) ? "Active" : "Activate"}</button>
+                          <button type="button" className={`device-activate-button ${device.isActive ? "active" : ""}`} title={device.isActive ? `Deactivate ${device.name}` : `Activate ${device.name}`} onClick={() => onToggleActive(device.id)}>{device.isActive ? "Deactivate" : "Activate"}</button>
                         </span>
                       )}
                       <small>
@@ -858,11 +907,12 @@ function DevicesView({ devices, setDevices, value, locations, setEvents, activeD
                 <td>{device.rssi || "Not reported"}</td>
                 <td>{device.firmware || "Not reported"}</td>
                 <td>
-                  <Badge
-                    tone={device.status === "online" ? "blue" : "gray"}
-                  >
-                    {device.status === "online" ? "Online" : "Offline"}
-                  </Badge>
+                  <div className="device-status-badges">
+                    <Badge tone={device.status === "online" ? "blue" : "gray"}>
+                      {device.status === "online" ? "Online" : "Offline"}
+                    </Badge>
+                    {device.isActive && <Badge tone="blue">Active</Badge>}
+                  </div>
                 </td>
                 <td>
                   <div className="device-token">
@@ -918,14 +968,14 @@ function DevicesView({ devices, setDevices, value, locations, setEvents, activeD
         {renameError && <p className="form-error" role="alert">{renameError}</p>}
       </Card>
       <div className="device-note">
-        Current reading from primary device: <b>{value} dB</b>. Auth tokens are
+        Current reading from primary device: <b>{value} {displayLabel}</b>. Auth tokens are
         shown partially for security. New devices start offline until they
         connect.
       </div>
       {adding && (
         <AddDeviceModal
-          locations={locations}
-          existingTokens={devices.map((device) => device.token)}
+          locations={safeLocations}
+          existingTokens={safeDevices.map((device = {}) => device?.token)}
           onClose={() => setAdding(false)}
           onAdd={(device) => persist([...devices, device])}
         />
@@ -937,125 +987,6 @@ function DevicesView({ devices, setDevices, value, locations, setEvents, activeD
   );
 }
 
-function UsersView({ device, users, setUsers }) {
-  const [invite, setInvite] = useState(false);
-  const [openMenu, setOpenMenu] = useState(null);
-  return (
-    <>
-      <PageTitle
-        eyebrow="USERS / WORKSPACE ACCESS"
-        title="Access management"
-        description={device
-          ? `Control access to ChismOSA hardware: ${device.name} at ${device.location}.`
-          : "Control who can inspect, configure, and administer ChismOSA."}
-        action={
-          <>
-            {device && <Badge tone={device.status === "online" ? "blue" : "gray"}>{device.status === "online" ? "Online" : "Offline"}</Badge>}
-            <Button kind="primary" onClick={() => setInvite(true)}>
-              <Plus size={15} />
-              Invite user
-            </Button>
-          </>
-        }
-      />
-      <Card>
-        <SectionHead
-          label="WORKSPACE MEMBERS"
-          title={`${users.length} people with access`}
-        />
-        <table>
-          <thead>
-            <tr>
-              <th>User</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Last active</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user, index) => (
-              <tr key={user[1]}>
-                <td>
-                  <div className="table-device">
-                    <span className="person-avatar">
-                      {user[0]
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")}
-                    </span>
-                    <span>
-                      <b>{user[0]}</b>
-                      <small>{user[1]}</small>
-                    </span>
-                  </div>
-                </td>
-                <td>
-                  <select
-                    className="inline-select"
-                    value={user[2]}
-                    onChange={(event) => setUsers((current) => current.map((item, i) =>
-                      i === index ? [item[0], item[1], event.target.value, item[3]] : item,
-                    ))}
-                  >
-                    <option>Admin</option>
-                    <option>Editor</option>
-                    <option>Viewer</option>
-                  </select>
-                </td>
-                <td>
-                  <Badge tone={user[3] === "Active" ? "blue" : "gray"}>
-                    {user[3]}
-                  </Badge>
-                </td>
-                <td>Today, 09:42</td>
-                <td>
-                  <div className="member-actions">
-                    <button className="table-more" aria-label={`Actions for ${user[0]}`} aria-expanded={openMenu === user[1]} onClick={() => setOpenMenu(openMenu === user[1] ? null : user[1])}>
-                      <MoreHorizontal size={17} />
-                    </button>
-                    {openMenu === user[1] && (
-                      <div className="member-menu" role="menu">
-                        <button role="menuitem" onClick={() => {
-                          if (window.confirm(`Delete ${user[0]} from workspace members?`)) {
-                            setUsers((current) => current.filter((member) => member[1] !== user[1]));
-                          }
-                          setOpenMenu(null);
-                        }}><Trash2 size={14} />Delete User</button>
-                      </div>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-      {invite && (
-        <Modal
-          title="Invite a workspace member"
-          onClose={() => setInvite(false)}
-        >
-          <label>
-            Email address
-            <input placeholder="name@company.com" />
-          </label>
-          <label>
-            Role
-            <select defaultValue="Viewer">
-              <option>Admin</option>
-              <option>Editor</option>
-              <option>Viewer</option>
-            </select>
-          </label>
-          <Button kind="primary" onClick={() => setInvite(false)}>
-            Send invitation
-          </Button>
-        </Modal>
-      )}
-    </>
-  );
-}
 function Modal({ title, onClose, children }) {
   return (
     <div className="modal-backdrop">
@@ -1402,6 +1333,7 @@ function SettingsView({ user, onSave }) {
   const [warning, setWarning] = useState(saved.warning || 85);
   const [frequency, setFrequency] = useState(saved.frequency || "1s");
   const [scale, setScale] = useState(saved.scale || "dBA");
+  const [displayLabel, setDisplayLabel] = useState(saved.displayLabel || "Level");
   return (
     <>
       <PageTitle
@@ -1411,7 +1343,7 @@ function SettingsView({ user, onSave }) {
         action={
           <Button
             kind="primary"
-            onClick={() => onSave({ name, email, warning, frequency, scale })}
+            onClick={() => onSave({ name, email, warning, frequency, scale, displayLabel })}
           >
             <Save size={15} />
             Save Settings
@@ -1488,6 +1420,16 @@ function SettingsView({ user, onSave }) {
                 <option>dBC</option>
                 <option>raw dB</option>
               </select>
+            </label>
+            <label>
+              Display Label / Unit Alias
+              <input
+                value={displayLabel}
+                onChange={(event) => setDisplayLabel(event.target.value)}
+                placeholder="Level"
+                maxLength={24}
+              />
+              <small className="setting-help">Alternative label shown on gauges and metric cards (e.g., Level, dB, Noise)</small>
             </label>
           </div>
         </Card>
@@ -2395,12 +2337,13 @@ function LocationsView({ value = 48, devices, activeDevice }) {
 }
 
 function StreamsView({ streams, setStreams }) {
+  const safeStreams = Array.isArray(streams) ? streams : [];
   const addStream = () =>
     setStreams([
-      ...streams,
+      ...safeStreams,
       {
         id: Date.now(),
-        pin: `V${streams.length}`,
+        pin: `V${safeStreams.length}`,
         name: "New datastream",
         type: "Double",
         min: 0,
@@ -2410,7 +2353,7 @@ function StreamsView({ streams, setStreams }) {
     ]);
   const update = (id, key, value) =>
     setStreams(
-      streams.map((stream) =>
+      safeStreams.map((stream = {}) =>
         stream.id === id ? { ...stream, [key]: value } : stream,
       ),
     );
@@ -2448,7 +2391,7 @@ function StreamsView({ streams, setStreams }) {
             </tr>
           </thead>
           <tbody>
-            {streams.map((stream) => (
+            {safeStreams.map((stream = {}) => (
               <tr key={stream.id}>
                 <td>
                   <span className="pin-chip">{stream.pin}</span>
@@ -2531,29 +2474,8 @@ function StreamsView({ streams, setStreams }) {
   );
 }
 
-function RulesView() {
-  const [rules, setRules] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("chismosa-rules")) || [
-        {
-          id: 1,
-          name: "High noise alert",
-          condition: "Noise Level V0 > 85 dB",
-          action: "Send notification",
-          active: true,
-        },
-        {
-          id: 2,
-          name: "Quiet hours watch",
-          condition: "Noise Level V0 > 65 dB after 22:00",
-          action: "Create event",
-          active: false,
-        },
-      ];
-    } catch (_) {
-      return [];
-    }
-  });
+function RulesView({ rules = [], setRules = () => {}, notificationPermission = "unsupported", requestNotificationPermission = () => {} }) {
+  const safeRules = Array.isArray(rules) ? rules : [];
   const [editingRule, setEditingRule] = useState(null);
   const [draft, setDraft] = useState(null);
   const [draftError, setDraftError] = useState("");
@@ -2596,15 +2518,15 @@ function RulesView() {
       active: draft.active,
     };
     updateRules(editingRule
-      ? rules.map((item) => item.id === editingRule.id ? rule : item)
-      : [...rules, rule]);
+      ? safeRules.map((item = {}) => item?.id === editingRule.id ? rule : item)
+      : [...safeRules, rule]);
     setDraft(null);
     setEditingRule(null);
   };
-  const toggleRule = (id) => updateRules(rules.map((item) =>
-    item.id === id ? { ...item, active: !item.active } : item,
+  const toggleRule = (id) => updateRules(safeRules.map((item = {}) =>
+    item?.id === id ? { ...item, active: !item.active } : item,
   ));
-  const deleteRule = (id) => updateRules(rules.filter((item) => item.id !== id));
+  const deleteRule = (id) => updateRules(safeRules.filter((item = {}) => item?.id !== id));
   return (
     <>
       <PageTitle
@@ -2612,17 +2534,24 @@ function RulesView() {
         title="Automation templates"
         description="Turn sound thresholds into actions for your monitoring team."
         action={
-          <Button
-            kind="primary"
-            onClick={() => openRuleEditor()}
-          >
-            <Plus size={15} />
-            Create rule
-          </Button>
+          <div className="rule-header-actions">
+            <Button
+              onClick={requestNotificationPermission}
+              disabled={notificationPermission === "unsupported" || notificationPermission === "granted"}
+              title={notificationPermission === "denied" ? "Notifications are blocked in browser settings" : "Allow desktop noise alerts"}
+            >
+              <Bell size={15} />
+              {notificationPermission === "granted" ? "Desktop alerts enabled" : notificationPermission === "denied" ? "Alerts blocked" : notificationPermission === "unsupported" ? "Alerts unavailable" : "Enable desktop alerts"}
+            </Button>
+            <Button kind="primary" onClick={() => openRuleEditor()}>
+              <Plus size={15} />
+              Create rule
+            </Button>
+          </div>
         }
       />
       <div className="rule-list">
-        {rules.map((rule) => (
+        {safeRules.map((rule = {}) => (
           <Card className="rule-card" key={rule.id}>
             <div className="rule-icon">
               <Zap size={19} />
@@ -2698,20 +2627,21 @@ function RulesView() {
     </>
   );
 }
-function MetadataView({ devices, value, activeDeviceId, onActiveDeviceChange }) {
-  const [selectedDevice, setSelectedDevice] = useState(() => devices.find((device) => String(device.id) === String(activeDeviceId))?.name || devices[0]?.name || "");
+function MetadataView({ devices = [], value = 0, displayLabel = "Level", activeDeviceId = "", onActiveDeviceChange = () => {} }) {
+  const safeDevices = Array.isArray(devices) ? devices : [];
+  const [selectedDevice, setSelectedDevice] = useState(() => safeDevices.find((device = {}) => String(device?.id) === String(activeDeviceId))?.name || safeDevices[0]?.name || "");
   const [metadata, setMetadata] = useState(() => JSON.parse(localStorage.getItem("chismosa-metadata") || "{}"));
   useEffect(() => {
     const saved = JSON.parse(localStorage.getItem("chismosa-metadata") || "{}");
     setMetadata(saved);
   }, []);
   useEffect(() => {
-    const active = devices.find((device) => String(device.id) === String(activeDeviceId));
+    const active = safeDevices.find((device = {}) => String(device?.id) === String(activeDeviceId));
     if (active) setSelectedDevice(active.name);
-    else if (devices.length && !devices.some((device) => device.name === selectedDevice)) setSelectedDevice(devices[0].name);
-  }, [devices, selectedDevice, activeDeviceId]);
+    else if (safeDevices.length && !safeDevices.some((device = {}) => device?.name === selectedDevice)) setSelectedDevice(safeDevices[0]?.name || "");
+  }, [safeDevices, selectedDevice, activeDeviceId]);
   const fields = metadata[selectedDevice] || [];
-  const activeDevice = devices.find((device) => device.name === selectedDevice);
+  const activeDevice = safeDevices.find((device = {}) => device?.name === selectedDevice);
   const updateFields = (next) => {
     const updated = { ...metadata, [selectedDevice]: next };
     setMetadata(updated);
@@ -2734,7 +2664,7 @@ function MetadataView({ devices, value, activeDeviceId, onActiveDeviceChange }) 
       <Card>
         <SectionHead
           label="DEVICE CONTEXT"
-          title={devices.length ? "Device context" : "No registered devices"}
+          title={safeDevices.length ? "Device context" : "No hardware telemetry"}
           action={
             <Button disabled={!selectedDevice} onClick={() => updateFields([...fields, ["New field", "Value"]])}>
               <Plus size={14} />
@@ -2744,11 +2674,12 @@ function MetadataView({ devices, value, activeDeviceId, onActiveDeviceChange }) 
         />
         <select value={selectedDevice} onChange={(event) => {
           setSelectedDevice(event.target.value);
-          const chosen = devices.find((device) => device.name === event.target.value);
+          const chosen = safeDevices.find((device = {}) => device?.name === event.target.value);
           if (chosen) onActiveDeviceChange(chosen.id);
-        }} disabled={!devices.length}>
-          {devices.length ? devices.map((device) => <option key={device.id} value={device.name}>{device.name}</option>) : <option value="">No registered devices</option>}
+        }} disabled={!safeDevices.length}>
+          {safeDevices.length ? safeDevices.map((device = {}) => <option key={device?.id} value={device?.name || ""}>{device?.name || "Unnamed device"}</option>) : <option value="">Waiting for device telemetry</option>}
         </select>
+        {!safeDevices.length && <p className="empty-metadata-state">Device metadata will appear after hardware telemetry is received.</p>}
         {activeDevice && (
           <div className="active-device-telemetry" aria-live="polite">
             <SectionHead label="ACTIVE HARDWARE" title={activeDevice.name} action={<Badge tone={activeDevice.status === "online" ? "blue" : "gray"}>{activeDevice.status === "online" ? "Online" : "Offline"}</Badge>} />
@@ -2756,7 +2687,7 @@ function MetadataView({ devices, value, activeDeviceId, onActiveDeviceChange }) 
               <div><dt>Token</dt><dd><code>{activeDevice.token || "Unavailable"}</code></dd></div>
               <div><dt>Firmware</dt><dd>{activeDevice.firmware || "v1.0.0"}</dd></div>
               <div><dt>Pin V0 status</dt><dd>{activeDevice.status === "online" ? "Online" : "Offline"}</dd></div>
-              <div><dt>Latest V0 reading</dt><dd>{value} dB</dd></div>
+              <div><dt>Latest V0 reading</dt><dd>{value} {displayLabel}</dd></div>
               <div><dt>Location</dt><dd>{activeDevice.location || "jiro"}</dd></div>
               <div><dt>Last seen</dt><dd>{activeDevice.lastSeen ? new Date(activeDevice.lastSeen).toLocaleString() : "Awaiting telemetry"}</dd></div>
             </dl>
@@ -2800,9 +2731,11 @@ function MetadataView({ devices, value, activeDeviceId, onActiveDeviceChange }) 
     </>
   );
 }
-function LogsView({ events, kind, devices }) {
+function LogsView({ events = [], kind = "Events & Notifications", devices = [] }) {
+  const safeEvents = Array.isArray(events) ? events : [];
+  const safeDevices = Array.isArray(devices) ? devices : [];
   const [filter, setFilter] = useState("All");
-  const filteredByKind = events.filter((event) => {
+  const filteredByKind = safeEvents.filter((event = {}) => {
     if (kind === "Connection Lifecycle") {
       return ["info", "connected", "disconnected", "heartbeat"].includes(event.kind) && !event.message.includes("Decibel Warning");
     } else {
@@ -2846,7 +2779,7 @@ function LogsView({ events, kind, devices }) {
               </span>
               <div>
                 <b>{event.message}</b>
-                <small>{event.time} · {event.device || devices[0]?.name || "System"}</small>
+                <small>{event?.time || "Now"} · {event?.device || safeDevices[0]?.name || "System"}</small>
               </div>
               <span className="log-kind">{event.kind}</span>
             </div>
@@ -2858,21 +2791,29 @@ function LogsView({ events, kind, devices }) {
 }
 
 function DashboardView({
-  widgets,
-  setWidgets,
-  value,
-  points,
+  widgets = [],
+  setWidgets = () => {},
+  value = 0,
+  points = [],
+  displayLabel = "Level",
+  liveReadings = {},
+  telemetryByDevice = {},
   range,
   setRange,
   device,
-  devices,
-  activeDeviceId,
-  onActiveDeviceChange,
+  devices = [],
+  activeDeviceId = "",
+  onActiveDeviceChange = () => {},
 }) {
+  const safeWidgets = Array.isArray(widgets) ? widgets : [];
+  const safeDevices = Array.isArray(devices) ? devices : [];
+  const safeLiveReadings = liveReadings && typeof liveReadings === "object" ? liveReadings : {};
+  const safeTelemetry = telemetryByDevice && typeof telemetryByDevice === "object" ? telemetryByDevice : {};
+  const activeDevices = safeDevices.filter((item = {}) => item?.isActive === true);
   const [editing, setEditing] = useState(null);
   const add = (kind) =>
     setWidgets([
-      ...widgets,
+      ...safeWidgets,
       {
         id: `${kind}-${Date.now()}`,
         kind,
@@ -2885,7 +2826,7 @@ function DashboardView({
   const update = (key, val) => setEditing({ ...editing, [key]: val });
   const apply = () => {
     setWidgets(
-      widgets.map((widget) => (widget.id === editing.id ? editing : widget)),
+      safeWidgets.map((widget = {}) => (widget?.id === editing?.id ? editing : widget)),
     );
     setEditing(null);
   };
@@ -2933,9 +2874,9 @@ function DashboardView({
         <div className="canvas">
           <div className="canvas-device-selector">
             <label htmlFor="active-canvas-device">Active device</label>
-            <select id="active-canvas-device" value={activeDeviceId || ""} onChange={(event) => onActiveDeviceChange(event.target.value)} disabled={!devices.length}>
-              {!devices.length && <option value="">No registered devices</option>}
-              {devices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            <select id="active-canvas-device" value={activeDeviceId || ""} onChange={(event) => onActiveDeviceChange(event.target.value)} disabled={!safeDevices.length}>
+              {!safeDevices.length && <option value="">No registered devices</option>}
+              {safeDevices.map((item = {}) => <option key={item?.id} value={item?.id || ""}>{item?.name || "Unnamed device"}</option>)}
             </select>
           </div>
           <div className="canvas-bar">
@@ -2943,7 +2884,7 @@ function DashboardView({
               <span className="eyebrow blue">DASHBOARD CANVAS</span>
               <b>Noise Pollution Monitoring / Production</b>
             </div>
-            <span className="canvas-size">{widgets.length} widgets</span>
+            <span className="canvas-size">{safeWidgets.length} widgets</span>
           </div>
           <Card className="device-card">
             <div className="table-device">
@@ -2961,20 +2902,46 @@ function DashboardView({
               {device?.status === "online" ? "Online" : "Offline"}
             </Badge>
           </Card>
+          <div className="dashboard-live-devices">
+            {activeDevices.map((item = {}) => {
+              const key = item?.token || item?.id;
+              const telemetry = safeTelemetry?.[key] || safeTelemetry?.[item?.id] || {};
+              const reading = Number.isFinite(Number(safeLiveReadings?.[key]))
+                ? Number(safeLiveReadings[key])
+                : Number(telemetry.value) || 0;
+              return (
+                <Card className="dashboard-live-device" key={key || item?.id}>
+                  <div className="widget-card-head">
+                    <div>
+                      <span className="eyebrow blue">LIVE DEVICE</span>
+                      <h3>{item?.name || "Unnamed device"}</h3>
+                    </div>
+                    <Badge tone={item?.status === "online" ? "blue" : "gray"}>
+                      {item?.status === "online" ? "Online" : "Offline"}
+                    </Badge>
+                  </div>
+                  <GaugeWidget value={reading} displayLabel={displayLabel} />
+                  <div className="widget-foot"><span>{item?.token || item?.id || "Unknown device"}</span><strong>{reading} {displayLabel}</strong></div>
+                </Card>
+              );
+            })}
+            {!activeDevices.length && <p className="empty-canvas">Activate a device to view its live gauge.</p>}
+          </div>
           <div className="canvas-grid">
-            {widgets.map((widget) => (
+            {safeWidgets.map((widget = {}) => (
               <WidgetCard
                 key={widget.id}
                 widget={widget}
                 value={value}
                 points={points}
+                displayLabel={displayLabel}
                 onEdit={setEditing}
                 onDelete={(id) =>
-                  setWidgets(widgets.filter((item) => item.id !== id))
+                  setWidgets(safeWidgets.filter((item = {}) => item?.id !== id))
                 }
               />
             ))}
-            {!widgets.length && (
+            {!safeWidgets.length && (
               <div className="empty-canvas">
                 <Plus size={18} />
                 <b>Add your first widget</b>
@@ -3047,6 +3014,7 @@ function DashboardView({
 function AppContent() {
   const [view, setView] = useState("Developer Zone");
   const [tab, setTab] = useState("Web Dashboard");
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [range, setRange] = useState("1h");
   const [authOpen, setAuthOpen] = useState(false);
   const [utilityView, setUtilityView] = useState("");
@@ -3059,38 +3027,49 @@ function AppContent() {
     logout,
     isAuthenticated,
   } = useAuth();
-  const { connected, device: physicalDevice, value, points, events, setEvents, renameDevice } = useWebSocket();
-  const [widgets, setWidgets] = useState(() => {
+  const { connected, device: physicalDevice, devices: telemetryDevices, liveReadings, telemetryByDevice, events, setEvents, metrics, renameDevice, rules, setRules, notificationPermission, requestNotificationPermission } = useWebSocket();
+  const [displayLabel, setDisplayLabel] = useState(() => {
     try {
-      return (
-        JSON.parse(localStorage.getItem("chismosa-widgets")) || initialWidgets
-      );
+      return JSON.parse(localStorage.getItem("chismosa-settings"))?.displayLabel || "Level";
     } catch (_) {
-      return initialWidgets;
+      return "Level";
     }
   });
+  const isHardwareConnected = Number(metrics?.onlineDeviceCount) > 0;
+  const [selectedDeviceId, setSelectedDeviceId] = useState(() => localStorage.getItem("chismosa-active-device") || "");
+  const [widgetLayouts, setWidgetLayouts] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("chismosa-widgets"));
+      const storedDeviceId = localStorage.getItem("chismosa-active-device") || "unassigned";
+      return Array.isArray(saved)
+        ? { [storedDeviceId]: saved }
+        : saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+    } catch (_) {
+      return {};
+    }
+  });
+  const widgets = widgetLayouts[selectedDeviceId] || initialWidgets;
+  const setWidgets = (next) => {
+    setWidgetLayouts((current) => {
+      const updated = { ...current, [selectedDeviceId || "default"]: next };
+      localStorage.setItem("chismosa-widgets", JSON.stringify(updated));
+      return updated;
+    });
+  };
   const [streams, setStreams] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("chismosa-streams")) || defaultStreams;
+      const saved = JSON.parse(localStorage.getItem("chismosa-streams"));
+      return Array.isArray(saved) ? saved : defaultStreams;
     } catch (_) {
       return defaultStreams;
     }
   });
-  const [activeDeviceId, setActiveDeviceId] = useState(() => localStorage.getItem("chismosa-active-device") || "");
-  const [users, setUsers] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("chismosa-users")) || [
-        ["Orij Santos", "orij@chismosa.io", "Admin", "Active"],
-        ["Mia Rivera", "mia@chismosa.io", "Editor", "Active"],
-        ["Ken Wu", "ken@chismosa.io", "Viewer", "Pending"],
-      ];
-    } catch (_) {
-      return [];
-    }
-  });
   const [devices, setDevices] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("chismosa-devices")) || [];
+      const saved = JSON.parse(localStorage.getItem("chismosa-devices"));
+      return Array.isArray(saved)
+        ? saved.map((device) => ({ ...device, isActive: device?.isActive === true }))
+        : [];
     } catch (_) {
       return [];
     }
@@ -3105,13 +3084,18 @@ function AppContent() {
       return locations.map((loc, index) => ({ id: index + 1, name: loc[0] }));
     }
   })();
+  const selectedTelemetryDevice = devices.find((item) => String(item?.id) === String(selectedDeviceId)) || physicalDevice || devices[0];
+  const selectedTelemetryKey = selectedTelemetryDevice?.token || selectedTelemetryDevice?.id;
+  const selectedTelemetry = (selectedTelemetryKey && telemetryByDevice?.[selectedTelemetryKey]) || {};
+  const currentValue = Number.isFinite(Number(selectedTelemetry.value)) ? Number(selectedTelemetry.value) : 0;
+  const currentPoints = Array.isArray(selectedTelemetry.points) ? selectedTelemetry.points : [];
   useFirestoreSettings(authUser, streams, setStreams, widgets, setWidgets);
   useEffect(() => {
     localStorage.setItem("chismosa-streams", JSON.stringify(streams));
   }, [streams]);
   useEffect(() => {
-    localStorage.setItem("chismosa-widgets", JSON.stringify(widgets));
-  }, [widgets]);
+    localStorage.setItem("chismosa-widgets", JSON.stringify(widgetLayouts));
+  }, [widgetLayouts]);
   useEffect(() => {
     setStreams((current) => {
       const updated = current.map((stream) =>
@@ -3138,22 +3122,31 @@ function AppContent() {
     localStorage.setItem("chismosa-devices", JSON.stringify(devices));
   }, [devices]);
   useEffect(() => {
-    localStorage.setItem("chismosa-users", JSON.stringify(users));
-  }, [users]);
+    if (!telemetryDevices?.length) return;
+    setDevices((current) => {
+      const next = [...current];
+      telemetryDevices.forEach((incoming) => {
+        const index = next.findIndex((item) => item.id === incoming.id || (incoming.token && item.token === incoming.token));
+        if (index < 0) next.push({ ...incoming, isActive: incoming.isActive === true });
+        else next[index] = { ...next[index], ...incoming, isActive: next[index].isActive === true };
+      });
+      return next;
+    });
+  }, [telemetryDevices]);
   useEffect(() => {
     if (devices.length === 0) {
-      if (activeDeviceId) setActiveDeviceId("");
+      if (selectedDeviceId) setSelectedDeviceId("");
       localStorage.removeItem("chismosa-active-device");
       return;
     }
-    if (!devices.some((item) => String(item.id) === String(activeDeviceId))) {
+    if (!devices.some((item) => String(item.id) === String(selectedDeviceId))) {
       const nextId = physicalDevice && devices.some((item) => item.id === physicalDevice.id)
         ? String(physicalDevice.id)
         : String(devices[0].id);
-      setActiveDeviceId(nextId);
+      setSelectedDeviceId(nextId);
       localStorage.setItem("chismosa-active-device", nextId);
     }
-  }, [devices, activeDeviceId, physicalDevice]);
+  }, [devices, selectedDeviceId, physicalDevice]);
   useEffect(() => {
     if (!physicalDevice) return;
     setDevices((current) => {
@@ -3162,7 +3155,7 @@ function AppContent() {
         (physicalDevice.token && item.token === physicalDevice.token) ||
         item.name === physicalDevice.name,
       );
-      if (matchIndex < 0) return [...current, physicalDevice];
+      if (matchIndex < 0) return [...current, { ...physicalDevice, isActive: false }];
       const existing = current[matchIndex];
       const merged = { ...existing, ...physicalDevice };
       const unchanged = Object.keys(merged).every((key) => JSON.stringify(existing[key]) === JSON.stringify(merged[key]));
@@ -3170,12 +3163,15 @@ function AppContent() {
       return current.map((item, index) => index === matchIndex ? merged : item);
     });
   }, [physicalDevice]);
-  const activateDevice = (deviceId) => {
+  const selectDevice = (deviceId) => {
     const normalizedId = String(deviceId);
-    setActiveDeviceId(normalizedId);
+    setSelectedDeviceId(normalizedId);
     localStorage.setItem("chismosa-active-device", normalizedId);
   };
-  const activeDevice = devices.find((item) => String(item.id) === String(activeDeviceId)) || physicalDevice || devices[0];
+  const toggleDeviceActive = (deviceId) => {
+    setDevices((current) => current.map((item) => item.id === deviceId ? { ...item, isActive: item.isActive !== true } : item));
+  };
+  const activeDevice = devices.find((item) => String(item.id) === String(selectedDeviceId)) || physicalDevice || devices[0];
   const handleRenameDevice = async (device, requestedName) => {
     const name = requestedName.trim();
     if (!name) throw new Error("Device name cannot be empty.");
@@ -3245,6 +3241,7 @@ function AppContent() {
         user={authUser}
         onSave={(settings) => {
           localStorage.setItem("chismosa-settings", JSON.stringify(settings));
+          setDisplayLabel(settings.displayLabel || "Level");
         }}
       />
     ) : utilityView === "Help Center" ? (
@@ -3255,20 +3252,15 @@ function AppContent() {
       <DevicesView
         devices={devices}
         setDevices={setDevices}
-        value={value}
+        value={currentValue}
+        displayLabel={displayLabel}
         locations={deviceLocations}
         setEvents={setEvents}
-        activeDeviceId={activeDeviceId}
-        onActivate={activateDevice}
+        onToggleActive={toggleDeviceActive}
         onRename={handleRenameDevice}
       />
-    ) : view === "Users" ? (
-      <UsersView device={activeDevice} users={users} setUsers={setUsers} />
-
-    ) : view === "Locations" ? (
-      <LocationsView value={value} devices={devices} activeDevice={activeDevice} />
     ) : tab === "Home" ? (
-      <HomeView value={value} points={points} setTab={showTab} devices={devices} device={activeDevice} connected={connected} />
+      <HomeView value={currentValue} points={currentPoints} displayLabel={displayLabel} setTab={showTab} connected={connected} metrics={metrics} devices={devices} telemetryByDevice={telemetryByDevice} onToggleDevice={toggleDeviceActive} />
     ) : tab === "Datastreams" ? (
       <StreamsView streams={streams} setStreams={setStreams} />
     ) : tab === "Web Dashboard" && !isAuthenticated ? (
@@ -3277,19 +3269,22 @@ function AppContent() {
       <DashboardView
         widgets={widgets}
         setWidgets={setWidgets}
-        value={value}
-        points={points}
+        value={currentValue}
+        points={currentPoints}
+        displayLabel={displayLabel}
+        liveReadings={liveReadings}
+        telemetryByDevice={telemetryByDevice}
         range={range}
         setRange={setRange}
         devices={devices}
-        activeDeviceId={activeDeviceId}
-        onActiveDeviceChange={activateDevice}
+        activeDeviceId={selectedDeviceId}
+        onActiveDeviceChange={selectDevice}
         device={activeDevice}
       />
     ) : tab === "Automation Templates" ? (
-      <RulesView />
+      <RulesView rules={rules} setRules={setRules} notificationPermission={notificationPermission} requestNotificationPermission={requestNotificationPermission} />
     ) : tab === "Metadata" ? (
-      <MetadataView devices={devices} value={value} activeDeviceId={activeDeviceId} onActiveDeviceChange={activateDevice} />
+      <MetadataView devices={devices} value={currentValue} displayLabel={displayLabel} activeDeviceId={selectedDeviceId} onActiveDeviceChange={selectDevice} />
     ) : (
       <LogsView events={events} kind={tab} devices={devices} />
     );
@@ -3300,16 +3295,55 @@ function AppContent() {
           <div className="brand-mark">
             <Zap size={17} fill="currentColor" />
           </div>
-          <span>ChismOSA</span>
+          <span>B.U.L.A.B.O.G</span>
         </div>
         <div className="workspace-label">PLATFORM WORKSPACE</div>
-        <div className="workspace-switch">
-          <div className="workspace-avatar">C</div>
+        <div
+          className="workspace-switch"
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setWorkspaceOpen(false);
+            setUtilityView("");
+            setView("Developer Zone");
+            setTab("Home");
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setWorkspaceOpen(false);
+              setUtilityView("");
+              setView("Developer Zone");
+              setTab("Home");
+            }
+          }}
+        >
+          <div className="workspace-avatar">B</div>
           <div>
-            <b>ChismOSA</b>
+            <b>B.U.L.A.B.O.G</b>
             <small>Noise Pollution Monitoring</small>
           </div>
-          <ChevronDown size={15} />
+          <button
+            className="workspace-arrow"
+            type="button"
+            aria-label="Toggle workspace menu"
+            aria-expanded={workspaceOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              setWorkspaceOpen((current) => !current);
+            }}
+          >
+            <ChevronDown size={15} />
+          </button>
+          {workspaceOpen && (
+            <div className="workspace-menu" onClick={(event) => event.stopPropagation()}>
+              <b>B.U.L.A.B.O.G</b>
+              <small>Noise Pollution Monitoring</small>
+              <Badge tone={isHardwareConnected ? "blue" : "gray"}>
+                {isHardwareConnected ? "Online" : "Offline"}
+              </Badge>
+            </div>
+          )}
         </div>
         <nav className="main-nav">
           {nav.map(([label, Icon]) => (
@@ -3384,14 +3418,14 @@ function AppContent() {
         <header className="topbar">
           <div>
             <span className="eyebrow blue">
-              CHISMOSA / NOISE POLLUTION MONITORING
+              B.U.L.A.B.O.G / NOISE POLLUTION MONITORING
             </span>
             <h1>{utilityView || (view === "Developer Zone" ? tab : view)}</h1>
           </div>
           <div className="top-actions">
-            <span className={`connection ${physicalDevice?.status === "online" ? "on" : ""}`}>
+            <span className={`connection ${isHardwareConnected ? "on" : ""}`}>
               <i />
-              {physicalDevice?.status === "online" ? "Online" : "Offline"}
+              {isHardwareConnected ? "Online" : "Offline"}
             </span>
             {authUser ? (
               <div className="auth-user">
